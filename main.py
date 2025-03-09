@@ -70,7 +70,7 @@ def load_data_and_validate(config, device):
 
 def find_correlated_features(config, data_loader, devices):
     """
-    Find correlated features in the dataset.
+    Find correlated features in the dataset using multiple GPUs if available.
     
     Args:
         config (Config): Configuration object.
@@ -106,9 +106,6 @@ def find_correlated_features(config, data_loader, devices):
     if elapsed_time > 0:
         progress.start_time = time.time() - elapsed_time
     
-    # Main device (first in the list)
-    main_device = devices[0]
-    
     # Generate batches
     batches = data_loader.get_feature_batches(config.batch_size)
     
@@ -122,14 +119,16 @@ def find_correlated_features(config, data_loader, devices):
         
         # Load batch features
         batch_indices = list(range(start_idx, end_idx))
-        batch_features = data_loader.load_batch(start_idx, end_idx, device=main_device)
+        batch_features = data_loader.load_batch(start_idx, end_idx)
         
         # Load all active features
         active_feature_indices = [idx for idx in active_indices if idx not in batch_indices]
-        all_features = data_loader.load_features(active_feature_indices, device=main_device)
+        all_features = data_loader.load_features(active_feature_indices)
         
-        # Compute correlation matrix for the current batch
-        correlation_matrix, _ = compute_batch_correlation(batch_features, all_features)
+        # Compute correlation matrix for the current batch using all available GPUs
+        correlation_matrix, _ = compute_batch_correlation(
+            batch_features, all_features, active_indices=active_feature_indices, devices=devices
+        )
         
         # Find correlated pairs
         batch_correlated_pairs = find_correlated_pairs(
@@ -144,8 +143,8 @@ def find_correlated_features(config, data_loader, devices):
             active_indices, batch_correlated_pairs, strategy=config.pruning_strategy
         )
         
-        # Get GPU memory usage
-        gpu_memory = progress.get_gpu_memory_usage(main_device)
+        # Get GPU memory usage (max across all devices)
+        gpu_memory = max(progress.get_gpu_memory_usage(device) for device in devices)
         
         # End batch timing and update progress
         should_checkpoint = progress.end_batch(
@@ -164,6 +163,9 @@ def find_correlated_features(config, data_loader, devices):
                 batch_idx + 1,  # Next batch index
                 progress.get_elapsed_time()
             )
+        
+        # Clear GPU memory after each batch
+        torch.cuda.empty_cache()
     
     # Close progress tracker
     progress.close()

@@ -258,6 +258,85 @@ class TestPearsonCorrelation(unittest.TestCase):
         
         self.assertEqual(len(removed_indices_random), len(expected_removed))
 
+    def test_multi_gpu_correlation(self):
+        """
+        Test correlation computation using multiple GPUs.
+        Skip if CUDA is not available or if there's only one GPU.
+        """
+        if not torch.cuda.is_available():
+            print("CUDA not available, skipping multi-GPU test")
+            return
+        
+        if torch.cuda.device_count() < 2:
+            print("Less than 2 GPUs available, skipping multi-GPU test")
+            return
+        
+        # Use first two GPUs
+        devices = [torch.device(f'cuda:{i}') for i in range(2)]
+        
+        # Create test data
+        batch_size = 2
+        batch_indices = [5, 7]  # Base features for correlated pairs
+        batch_features = self.data_tensor[:, batch_indices]
+        
+        # Compute correlation using multiple GPUs
+        correlation_matrix, active_indices = compute_batch_correlation(
+            batch_features, self.data_tensor, devices=devices
+        )
+        
+        # Compute correlation using single GPU for reference
+        single_gpu_matrix, _ = compute_batch_correlation(
+            batch_features, self.data_tensor, devices=[devices[0]]
+        )
+        
+        # Results should be the same regardless of number of GPUs
+        self.assertTrue(torch.allclose(correlation_matrix, single_gpu_matrix, atol=1e-6))
+        
+        # Check specific correlations
+        self.assertAlmostEqual(correlation_matrix[0, 6].item(), 0.9, delta=0.1)  # (5,6)
+        self.assertAlmostEqual(correlation_matrix[0, 9].item(), -0.9, delta=0.1)  # (5,9)
+        self.assertAlmostEqual(correlation_matrix[1, 8].item(), 0.9, delta=0.1)  # (7,8)
+    
+    def test_multi_gpu_memory_management(self):
+        """
+        Test memory management in multi-GPU correlation computation.
+        Skip if CUDA is not available or if there's only one GPU.
+        """
+        if not torch.cuda.is_available():
+            print("CUDA not available, skipping multi-GPU memory test")
+            return
+        
+        if torch.cuda.device_count() < 2:
+            print("Less than 2 GPUs available, skipping multi-GPU memory test")
+            return
+        
+        # Use first two GPUs
+        devices = [torch.device(f'cuda:{i}') for i in range(2)]
+        
+        # Record initial memory usage
+        initial_memory = [torch.cuda.memory_allocated(i) for i in range(2)]
+        
+        # Create larger test data to stress memory
+        n_samples = 10000
+        n_features = 1000
+        X = torch.randn(n_samples, n_features)
+        Y = torch.randn(n_samples, n_features)
+        
+        # Compute correlation using multiple GPUs
+        correlation_matrix, _ = compute_batch_correlation_multi_gpu(X, Y, devices)
+        
+        # Force garbage collection and CUDA memory clearance
+        del correlation_matrix
+        torch.cuda.empty_cache()
+        
+        # Check final memory usage
+        final_memory = [torch.cuda.memory_allocated(i) for i in range(2)]
+        
+        # Memory usage should be back to near initial levels
+        for i in range(2):
+            memory_diff = abs(final_memory[i] - initial_memory[i])
+            self.assertLess(memory_diff, 1024 * 1024)  # Less than 1MB difference
+
 
 if __name__ == "__main__":
     unittest.main() 

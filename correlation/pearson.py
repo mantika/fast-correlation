@@ -48,7 +48,64 @@ def compute_pearson_correlation(X, Y=None):
     return correlation
 
 
-def compute_batch_correlation(batch_features, all_features, active_indices=None):
+def compute_batch_correlation_multi_gpu(batch_features, all_features, devices):
+    """
+    Compute correlations between batch features and all features using multiple GPUs.
+    
+    Args:
+        batch_features (torch.Tensor): Tensor of shape [n_samples, batch_size]
+        all_features (torch.Tensor): Tensor of shape [n_samples, n_features]
+        devices (list): List of torch.device objects for each GPU
+            
+    Returns:
+        torch.Tensor: Correlation matrix of shape [batch_size, n_features]
+        list: List of active feature indices
+    """
+    if not devices or len(devices) == 1:
+        # Single device case
+        device = devices[0] if devices else torch.device('cpu')
+        batch_features = batch_features.to(device)
+        all_features = all_features.to(device)
+        correlation_matrix = compute_pearson_correlation(batch_features, all_features)
+        return correlation_matrix, list(range(all_features.shape[1]))
+    
+    # Multi-GPU case
+    n_devices = len(devices)
+    n_features = all_features.shape[1]
+    
+    # Split features across available GPUs
+    feature_splits = torch.chunk(all_features, n_devices, dim=1)
+    feature_indices = torch.chunk(torch.arange(n_features), n_devices)
+    
+    # Compute correlations in parallel on each GPU
+    correlation_matrices = []
+    split_indices = []
+    
+    for device_idx, device in enumerate(devices):
+        # Move data to current device
+        device_batch = batch_features.to(device)
+        device_features = feature_splits[device_idx].to(device)
+        device_indices = feature_indices[device_idx].tolist()
+        
+        # Compute correlation
+        corr = compute_pearson_correlation(device_batch, device_features)
+        
+        # Move result back to CPU and store
+        correlation_matrices.append(corr.cpu())
+        split_indices.extend(device_indices)
+        
+        # Clear GPU memory
+        del device_batch
+        del device_features
+        torch.cuda.empty_cache()
+    
+    # Concatenate results
+    correlation_matrix = torch.cat(correlation_matrices, dim=1)
+    
+    return correlation_matrix, split_indices
+
+
+def compute_batch_correlation(batch_features, all_features, active_indices=None, devices=None):
     """
     Compute correlations between a batch of features and all active features.
     
@@ -57,6 +114,8 @@ def compute_batch_correlation(batch_features, all_features, active_indices=None)
         all_features (torch.Tensor): Tensor of shape [n_samples, n_features]
         active_indices (list, optional): List of active feature indices.
             If None, all features are considered active.
+        devices (list, optional): List of torch.device objects for multi-GPU support.
+            If None, use single device (CPU or first GPU).
             
     Returns:
         torch.Tensor: Correlation matrix of shape [batch_size, n_active_features]
@@ -68,14 +127,17 @@ def compute_batch_correlation(batch_features, all_features, active_indices=None)
     # Select only active features
     active_features = all_features[:, active_indices]
     
-    # Compute correlation between batch features and active features
-    correlation_matrix = compute_pearson_correlation(batch_features, active_features)
-    
-    # Manually set correlations for identical features
-    for i, batch_idx in enumerate(range(batch_features.shape[1])):
-        for j, active_idx in enumerate(active_indices):
-            if batch_idx == active_idx:
-                correlation_matrix[i, j] = 1.0
+    # Compute correlation using single or multiple GPUs
+    if devices and len(devices) > 1:
+        correlation_matrix, _ = compute_batch_correlation_multi_gpu(
+            batch_features, active_features, devices
+        )
+    else:
+        # Use the first device if available, otherwise CPU
+        device = devices[0] if devices else torch.device('cpu')
+        batch_features = batch_features.to(device)
+        active_features = active_features.to(device)
+        correlation_matrix = compute_pearson_correlation(batch_features, active_features)
     
     return correlation_matrix, active_indices
 

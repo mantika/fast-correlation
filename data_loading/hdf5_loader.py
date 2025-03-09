@@ -100,7 +100,8 @@ class HDF5DataLoader:
             tensor_data = torch.tensor(data, dtype=self.dtype)
             
             if device is not None:
-                tensor_data = tensor_data.to(device)
+                # Use non-blocking transfer for CUDA devices
+                tensor_data = tensor_data.to(device, non_blocking=True)
                 
             return tensor_data
     
@@ -118,16 +119,22 @@ class HDF5DataLoader:
         """
         return self.load_features(list(range(start_idx, end_idx)), device)
     
-    def get_feature_batches(self, batch_size):
+    def get_feature_batches(self, batch_size, n_gpus=1):
         """
         Generate feature batch indices.
         
         Args:
             batch_size (int): Number of features in each batch.
+            n_gpus (int): Number of GPUs to use. The batch size will be adjusted
+                to ensure even distribution across GPUs.
             
         Returns:
             list: List of (start_idx, end_idx) tuples for each batch.
         """
+        # Adjust batch size to be divisible by number of GPUs
+        if n_gpus > 1:
+            batch_size = ((batch_size + n_gpus - 1) // n_gpus) * n_gpus
+        
         batches = []
         for i in range(0, self.n_features, batch_size):
             end_idx = min(i + batch_size, self.n_features)
