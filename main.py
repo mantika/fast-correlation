@@ -7,7 +7,7 @@ import torch
 import numpy as np
 
 from config import Config, parse_args
-from data_loading import HDF5DataLoader
+from data_loading import HDF5DataLoader, MultiFileHDF5DataLoader
 from correlation.pearson import (
     compute_batch_correlation,
     find_correlated_pairs,
@@ -57,10 +57,19 @@ def load_data_and_validate(config, device):
         device (torch.device): Device to load data to.
         
     Returns:
-        HDF5DataLoader: Data loader object.
+        HDF5DataLoader or MultiFileHDF5DataLoader: Data loader object.
     """
-    print(f"Loading dataset from {config.input_file}")
-    loader = HDF5DataLoader(config.input_file, config.dataset_key)
+    if config.input_dir:
+        print(f"Loading multi-file dataset from directory {config.input_dir}")
+        loader = MultiFileHDF5DataLoader(
+            config.input_dir, 
+            file_pattern=config.file_pattern,
+            dataset_key=config.dataset_key,
+            max_files_in_memory=config.max_files_in_memory
+        )
+    else:
+        print(f"Loading dataset from {config.input_file}")
+        loader = HDF5DataLoader(config.input_file, config.dataset_key)
     
     # Validate the dataset
     loader.validate_data()
@@ -74,7 +83,7 @@ def find_correlated_features(config, data_loader, devices):
     
     Args:
         config (Config): Configuration object.
-        data_loader (HDF5DataLoader): Data loader object.
+        data_loader (HDF5DataLoader or MultiFileHDF5DataLoader): Data loader object.
         devices (list): List of PyTorch device objects.
         
     Returns:
@@ -107,7 +116,7 @@ def find_correlated_features(config, data_loader, devices):
         progress.start_time = time.time() - elapsed_time
     
     # Generate batches
-    batches = data_loader.get_feature_batches(config.batch_size)
+    batches = data_loader.get_feature_batches(config.batch_size, n_gpus=len(devices))
     
     # Skip batches that have already been processed
     batches = batches[start_batch_idx:]

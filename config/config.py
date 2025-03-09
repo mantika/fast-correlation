@@ -15,6 +15,8 @@ class Config:
         """
         # Input/output
         self.input_file = kwargs.get('input_file', None)
+        self.input_dir = kwargs.get('input_dir', None)
+        self.file_pattern = kwargs.get('file_pattern', '*.h5')
         self.output_file = kwargs.get('output_file', None)
         self.dataset_key = kwargs.get('dataset_key', 'data')
         self.checkpoint_dir = kwargs.get('checkpoint_dir', 'checkpoints')
@@ -26,6 +28,7 @@ class Config:
         self.use_gpu = kwargs.get('use_gpu', True)
         self.gpu_ids = kwargs.get('gpu_ids', None)
         self.pruning_strategy = kwargs.get('pruning_strategy', 'first')
+        self.max_files_in_memory = kwargs.get('max_files_in_memory', 2)
         
         # Checkpoint parameters
         self.checkpoint_freq = kwargs.get('checkpoint_freq', 5)
@@ -108,12 +111,18 @@ def parse_args():
     )
     
     # Input/output arguments
-    parser.add_argument('--input', dest='input_file', type=str, required=True,
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument('--input', dest='input_file', type=str,
                       help='Path to the input HDF5 file')
+    input_group.add_argument('--input-dir', dest='input_dir', type=str,
+                      help='Directory containing multiple HDF5 files')
+    
+    parser.add_argument('--file-pattern', dest='file_pattern', type=str, default='*.h5',
+                      help='Pattern to match HDF5 files in the directory (default: *.h5)')
     parser.add_argument('--output', dest='output_file', type=str, required=True,
                       help='Path to the output file (CSV, JSON, HDF5, or NPY)')
     parser.add_argument('--dataset-key', dest='dataset_key', type=str, default='data',
-                      help='Key for the dataset in the HDF5 file (default: data)')
+                      help='Key for the dataset in the HDF5 file(s) (default: data)')
     parser.add_argument('--checkpoint-dir', dest='checkpoint_dir', type=str, default='checkpoints',
                       help='Directory to save checkpoints (default: checkpoints)')
     parser.add_argument('--resume-from', dest='resume_from', type=str, default=None,
@@ -132,6 +141,8 @@ def parse_args():
     parser.add_argument('--pruning-strategy', dest='pruning_strategy', type=str, default='first',
                       choices=['first', 'random'],
                       help='Strategy for selecting which feature to keep (default: first)')
+    parser.add_argument('--max-files-in-memory', dest='max_files_in_memory', type=int, default=2,
+                      help='Maximum number of files to load into memory at once (default: 2)')
     
     # Checkpoint parameters
     parser.add_argument('--checkpoint-freq', dest='checkpoint_freq', type=int, default=5,
