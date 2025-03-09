@@ -90,16 +90,18 @@ def compute_batch_correlation_multi_gpu(batch_features, all_features, devices):
         # Compute correlation
         corr = compute_pearson_correlation(device_batch, device_features)
         
-        # Move result back to CPU and store
-        correlation_matrices.append(corr.cpu())
+        # Store results (keep on GPU)
+        correlation_matrices.append(corr)
         split_indices.extend(device_indices)
         
-        # Clear GPU memory
+        # Clear intermediate tensors
         del device_batch
         del device_features
         torch.cuda.empty_cache()
     
-    # Concatenate results
+    # Move all correlation matrices to the first GPU and concatenate
+    first_device = devices[0]
+    correlation_matrices = [m.to(first_device) for m in correlation_matrices]
     correlation_matrix = torch.cat(correlation_matrices, dim=1)
     
     return correlation_matrix, split_indices
