@@ -22,7 +22,7 @@ A high-performance Python tool for identifying correlated features in large-scal
 
 1. Clone this repository:
 ```bash
-git clone https://github.com/yourusername/fast-correlation.git
+git clone https://github.com/mantika/fast-correlation.git
 cd fast-correlation
 ```
 
